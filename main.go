@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"math/rand"
 	"os"
 	"strings"
 
@@ -18,7 +19,7 @@ type cliCommandConfig struct {
 type cliCommand struct {
 	name        string
 	description string
-	callback    func() error
+	callback    func(...string) error
 	config      *cliCommandConfig
 }
 
@@ -27,14 +28,17 @@ func stringPtr(s string) *string {
 }
 
 var (
-	commands     map[string]cliCommand
-	mapCliConfig cliCommandConfig
+	commands       map[string]cliCommand
+	mapCliConfig   cliCommandConfig
+	caughtPokemons map[string]poke_api.PokeAPIPokemonResult
 )
 
 func init() {
+	caughtPokemons = make(map[string]poke_api.PokeAPIPokemonResult)
+
 	mapCliConfig = cliCommandConfig{
 		previous: nil,
-		next:     stringPtr(poke_api.PokeAPILocationAreaBaseURL),
+		next:     stringPtr(poke_api.PokeAPILocationAreaListBaseURL),
 	}
 
 	commands = map[string]cliCommand{
@@ -62,16 +66,40 @@ func init() {
 			callback:    commandMapB,
 			config:      &mapCliConfig,
 		},
+		"explore": {
+			name:        "explore",
+			description: "Find a location area and list of all the Pokémon located there",
+			callback:    commandExplore,
+			config:      nil,
+		},
+		"catch": {
+			name:        "catch",
+			description: "Try catching the Pokemon",
+			callback:    commandCatch,
+			config:      nil,
+		},
+		"inspect": {
+			name:        "inspect",
+			description: "Inspect one of your caught pokemons",
+			callback:    commandInspect,
+			config:      nil,
+		},
+		"pokedex": {
+			name:        "pokedex",
+			description: "See all of the names of the Pokemon that you caught!",
+			callback:    commandPokedex,
+			config:      nil,
+		},
 	}
 }
 
-func commandExit() error {
+func commandExit(args ...string) error {
 	fmt.Println("Closing the Pokedex... Goodbye!")
 	os.Exit(0)
 	return nil
 }
 
-func commandHelp() error {
+func commandHelp(args ...string) error {
 	fmt.Println("Welcome to the Pokedex!")
 	fmt.Println("Usage:")
 	fmt.Println()
@@ -83,7 +111,7 @@ func commandHelp() error {
 	return nil
 }
 
-func commandMap() error {
+func commandMap(args ...string) error {
 	cliCommandConfig := commands["map"].config
 
 	nextURL := cliCommandConfig.next
@@ -106,7 +134,7 @@ func commandMap() error {
 	return nil
 }
 
-func commandMapB() error {
+func commandMapB(args ...string) error {
 	cliCommandConfig := commands["mapb"].config
 
 	previousURL := cliCommandConfig.previous
@@ -124,6 +152,102 @@ func commandMapB() error {
 
 	for _, locationArea := range previousLocationAreas.Results {
 		fmt.Println(locationArea.Name)
+	}
+
+	return nil
+}
+
+func commandExplore(args ...string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("no location area name provided")
+	}
+
+	areaName := args[0]
+
+	fmt.Printf("Exploring %s...\n", areaName)
+	data, err := fetch.Get[poke_api.PokeAPILocationAreaResult](
+		poke_api.MakePokeAPILocationAreaBaseURL(areaName),
+	)
+	if err != nil {
+		return err
+	}
+
+	fmt.Println("Found Pokemon:")
+	for _, item := range data.PokemonEncounters {
+		fmt.Println(" - " + item.Pokemon.Name)
+	}
+
+	return nil
+}
+
+func commandCatch(args ...string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("no pokemon name provided")
+	}
+
+	pokemonIDOrName := args[0]
+
+	data, err := fetch.Get[poke_api.PokeAPIPokemonResult](
+		poke_api.MakePokeAPIPokemonURL(pokemonIDOrName),
+	)
+	if err != nil {
+		return err
+	}
+
+	// TODO: add a gauard a gainst already caught ones
+
+	fmt.Printf("Throwing a Pokeball at %s...\n", data.Name)
+
+	catchChance := rand.Intn(data.BaseExperience)
+
+	if catchChance < 50 {
+		caughtPokemons[data.Name] = data
+		fmt.Printf("%s was caught!\n", caughtPokemons[data.Name].Name)
+	} else {
+		fmt.Printf("%s escaped!\n", data.Name)
+	}
+
+	return nil
+}
+
+func commandInspect(args ...string) error {
+	pokemonName := args[0]
+
+	if len(args) == 0 {
+		return fmt.Errorf("no pokemon name provided")
+	}
+
+	pokemon, ok := caughtPokemons[pokemonName]
+
+	if !ok {
+		fmt.Printf("Can't inspect %s, it's not caught!\n", pokemonName)
+		return nil
+	}
+
+	fmt.Printf("Name: %s\n", pokemon.Name)
+	fmt.Printf("Height: %d\n", pokemon.Height)
+	fmt.Printf("Weight: %d\n", pokemon.Weight)
+	fmt.Printf("Stats:\n")
+	for _, stat := range pokemon.Stats {
+		fmt.Printf(" - %s: %d\n", stat.Stat.Name, stat.BaseStat)
+	}
+	fmt.Printf("Types:\n")
+	for _, pokemonType := range pokemon.Types {
+		fmt.Printf(" - %s\n", pokemonType.Type.Name)
+	}
+
+	return nil
+}
+
+func commandPokedex(args ...string) error {
+	if len(caughtPokemons) == 0 {
+		fmt.Println("No caught pokemon yet!")
+		return nil
+	}
+
+	fmt.Println("Your Pokedex:")
+	for _, value := range caughtPokemons {
+		fmt.Printf(" - %s\n", value.Name)
 	}
 
 	return nil
@@ -154,7 +278,7 @@ func main() {
 		cmd, ok := commands[commandName]
 
 		if ok {
-			if err := cmd.callback(); err != nil {
+			if err := cmd.callback(words[1:]...); err != nil {
 				fmt.Fprintf(os.Stderr, "Error executing command: %v\n", err)
 			}
 		} else {
