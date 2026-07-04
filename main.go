@@ -6,7 +6,9 @@ import (
 	"math/rand"
 	"os"
 	"strings"
+	"time"
 
+	"github.com/DreamEcho100/boot-dot-dev-build-a-pokedex-in-go/internal/cache"
 	"github.com/DreamEcho100/boot-dot-dev-build-a-pokedex-in-go/internal/fetch"
 	"github.com/DreamEcho100/boot-dot-dev-build-a-pokedex-in-go/internal/poke_api"
 )
@@ -31,10 +33,12 @@ var (
 	commands       map[string]cliCommand
 	mapCliConfig   cliCommandConfig
 	caughtPokemons map[string]poke_api.PokeAPIPokemonResult
+	pokemonCache      cache.Cache
 )
 
 func init() {
 	caughtPokemons = make(map[string]poke_api.PokeAPIPokemonResult)
+	pokemonCache = *cache.NewCache(10 * time.Second)
 
 	mapCliConfig = cliCommandConfig{
 		previous: nil,
@@ -120,7 +124,7 @@ func commandMap(args ...string) error {
 		return nil
 	}
 
-	locationAreas, err := fetch.Get[poke_api.PokeAPILocationAreaResultsList](*nextURL)
+	locationAreas, err := fetch.Get[poke_api.PokeAPILocationAreaResultsList](*nextURL, &pokemonCache)
 	if err != nil {
 		return err
 	}
@@ -143,7 +147,7 @@ func commandMapB(args ...string) error {
 		return nil
 	}
 
-	previousLocationAreas, err := fetch.Get[poke_api.PokeAPILocationAreaResultsList](*previousURL)
+	previousLocationAreas, err := fetch.Get[poke_api.PokeAPILocationAreaResultsList](*previousURL, &pokemonCache)
 	if err != nil {
 		return err
 	}
@@ -166,7 +170,7 @@ func commandExplore(args ...string) error {
 
 	fmt.Printf("Exploring %s...\n", areaName)
 	data, err := fetch.Get[poke_api.PokeAPILocationAreaResult](
-		poke_api.MakePokeAPILocationAreaBaseURL(areaName),
+		poke_api.MakePokeAPILocationAreaBaseURL(areaName), &pokemonCache,
 	)
 	if err != nil {
 		return err
@@ -188,7 +192,7 @@ func commandCatch(args ...string) error {
 	pokemonIDOrName := args[0]
 
 	data, err := fetch.Get[poke_api.PokeAPIPokemonResult](
-		poke_api.MakePokeAPIPokemonURL(pokemonIDOrName),
+		poke_api.MakePokeAPIPokemonURL(pokemonIDOrName), &pokemonCache,
 	)
 	if err != nil {
 		return err

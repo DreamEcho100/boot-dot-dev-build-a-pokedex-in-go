@@ -1,4 +1,4 @@
-package pokecache
+package cache
 
 import (
 	"sync"
@@ -16,8 +16,8 @@ type Cache struct {
 	interval time.Duration
 }
 
-func NewCache(interval time.Duration) Cache {
-	cache := Cache{
+func NewCache(interval time.Duration) *Cache {
+	cache := &Cache{
 		entries:  make(map[string]cacheEntry),
 		interval: interval,
 		mu:       sync.Mutex{},
